@@ -4,6 +4,15 @@
 (function () {
   'use strict';
 
+  // ─── mobile detection (JS is more reliable than CSS media queries on Samsung) ──
+  const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  if (isMobile) {
+    const kb = document.querySelector('.splash .kb');
+    const th = document.querySelector('.splash .touch-hint');
+    if (kb) kb.style.display = 'none';
+    if (th) th.style.display = '';
+  }
+
   // ─── DOM refs ────────────────────────────────────────────────────────────
   const canvas    = document.getElementById('world');
   const ctx       = canvas.getContext('2d');
