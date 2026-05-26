@@ -331,19 +331,12 @@
     white-space: nowrap;
   }
 
-  /* mobile touch zones — invisible, just for input */
-  .touch {
-    position: absolute;
-    pointer-events: auto;
-    z-index: 5;
-    opacity: 0;
-  }
   @media (hover: none) and (pointer: coarse) {
-    .touch.left { left: 0; top: 0; width: 33%; height: 100%; }
-    .touch.right { right: 0; top: 0; width: 33%; height: 100%; }
-    .touch.throttle { left: 33%; right: 33%; bottom: 0; height: 35%; }
-    .touch.brake { left: 33%; right: 33%; top: 0; height: 35%; }
     .hint { display: none; }
+    #ctrl-keys { display: none; }
+    .ctrl-touch { display: grid !important; }
+    .begin .kb { display: none; }
+    .begin .touch-hint { display: inline; }
   }
 </style>
 </head>
@@ -424,21 +417,21 @@
       <span class="rule"></span>
     </div>
 
-    <div class="controls">
+    <div class="controls" id="ctrl-keys">
       <div class="ctl"><div class="key">W</div><div class="lbl">Throttle</div></div>
       <div class="ctl"><div class="key">A · D</div><div class="lbl">Steer</div></div>
       <div class="ctl"><div class="key wide">Space</div><div class="lbl">Handbrake</div></div>
       <div class="ctl"><div class="key">R</div><div class="lbl">Reset</div></div>
     </div>
+    <div class="controls ctrl-touch" style="display:none">
+      <div class="ctl"><div class="key">Hold</div><div class="lbl">Throttle</div></div>
+      <div class="ctl"><div class="key">← →</div><div class="lbl">Steer</div></div>
+      <div class="ctl"><div class="key">Drag ↓</div><div class="lbl">Brake</div></div>
+      <div class="ctl"><div class="key">2nd finger</div><div class="lbl">Handbrake</div></div>
+    </div>
 
-    <div class="begin">Press any key to begin</div>
+    <div class="begin"><span class="kb">Press any key to begin</span><span class="touch-hint" style="display:none">Tap to begin</span></div>
   </div>
-
-  <!-- mobile touch input zones (invisible) -->
-  <div class="touch left" id="touch-left"></div>
-  <div class="touch right" id="touch-right"></div>
-  <div class="touch throttle" id="touch-throttle"></div>
-  <div class="touch brake" id="touch-brake"></div>
 </div>
 
 <script src="drift.js"></script>

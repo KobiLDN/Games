@@ -339,22 +339,64 @@
   window.addEventListener('keyup', function (e) { keys[e.code] = false; });
   splash.addEventListener('click', start);
 
-  // touch
+  // ─── virtual joystick (touch) ────────────────────────────────────────────
   const touch = { left: false, right: false, throttle: false, brake: false };
-  function bindZone(el, key) {
-    const on  = function (e) { e.preventDefault(); touch[key] = true;  if (!started) start(); };
-    const off = function (e) { e.preventDefault(); touch[key] = false; };
-    el.addEventListener('touchstart', on,  { passive: false });
-    el.addEventListener('touchend',   off, { passive: false });
-    el.addEventListener('touchcancel',off, { passive: false });
-    el.addEventListener('mousedown',  on);
-    el.addEventListener('mouseup',    off);
-    el.addEventListener('mouseleave', off);
+  const jstick = { active: false, id: null, startX: 0, startY: 0, currX: 0, currY: 0 };
+  let touchHandbrake = false;
+  const J_STEER_DEAD = 18;  // px horizontal dead zone
+  const J_BRAKE_DEAD = 28;  // px downward drag before braking kicks in
+
+  function syncJoystick() {
+    if (!jstick.active) {
+      touch.left = touch.right = touch.throttle = touch.brake = false;
+      return;
+    }
+    const dx = jstick.currX - jstick.startX;
+    const dy = jstick.currY - jstick.startY;
+    touch.left     = dx < -J_STEER_DEAD;
+    touch.right    = dx >  J_STEER_DEAD;
+    touch.brake    = dy >  J_BRAKE_DEAD;
+    touch.throttle = !touch.brake;
   }
-  bindZone(document.getElementById('touch-left'),     'left');
-  bindZone(document.getElementById('touch-right'),    'right');
-  bindZone(document.getElementById('touch-throttle'), 'throttle');
-  bindZone(document.getElementById('touch-brake'),    'brake');
+
+  canvas.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    if (!started) start();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (!jstick.active) {
+        jstick.active = true; jstick.id = t.identifier;
+        jstick.startX = jstick.currX = t.clientX;
+        jstick.startY = jstick.currY = t.clientY;
+      }
+    }
+    touchHandbrake = jstick.active && e.touches.length >= 2;
+    syncJoystick();
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === jstick.id) { jstick.currX = t.clientX; jstick.currY = t.clientY; }
+    }
+    syncJoystick();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function (e) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === jstick.id) { jstick.active = false; jstick.id = null; }
+    }
+    touchHandbrake = jstick.active && e.touches.length >= 2;
+    syncJoystick();
+  }, { passive: false });
+
+  canvas.addEventListener('touchcancel', function (e) {
+    e.preventDefault();
+    jstick.active = false; jstick.id = null; touchHandbrake = false;
+    syncJoystick();
+  }, { passive: false });
 
   // ─── helpers ─────────────────────────────────────────────────────────────
   function roundRect(c, x, y, w, h, r) {
@@ -637,7 +679,7 @@
     const down  = keys.ArrowDown  || keys.KeyS || touch.brake    ? 1 : 0;
     const left  = keys.ArrowLeft  || keys.KeyA || touch.left     ? 1 : 0;
     const right = keys.ArrowRight || keys.KeyD || touch.right    ? 1 : 0;
-    const handb = keys.Space ? 1 : 0;
+    const handb = keys.Space || touchHandbrake ? 1 : 0;
     const steerInput = right - left;
 
     // velocity decomposition
@@ -833,6 +875,29 @@
 
     ctx.restore();
 
+    // ── joystick visual (touch only)
+    if (jstick.active) {
+      const jx = jstick.startX, jy = jstick.startY;
+      const dx = jstick.currX - jx, dy = jstick.currY - jy;
+      const maxR = 52;
+      const clampR = Math.min(Math.hypot(dx, dy), maxR);
+      const ang = Math.atan2(dy, dx);
+      const kx = jx + Math.cos(ang) * clampR;
+      const ky = jy + Math.sin(ang) * clampR;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(239,230,212,0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(jx, jy, maxR, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(239,230,212,0.07)';
+      ctx.beginPath();
+      ctx.moveTo(jx - maxR, jy); ctx.lineTo(jx + maxR, jy);
+      ctx.moveTo(jx, jy - maxR); ctx.lineTo(jx, jy + maxR);
+      ctx.stroke();
+      ctx.fillStyle = touchHandbrake ? 'rgba(230,137,107,0.5)' : 'rgba(239,230,212,0.28)';
+      ctx.beginPath(); ctx.arc(kx, ky, 20, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
     // ── minimap overlay (drawn in screen space)
     const mmX = W - miniBmp.width - 28;
     const mmY = 96;
@@ -882,7 +947,5 @@
   }
   requestAnimationFrame(frame);
 
-  window.addEventListener('contextmenu', function (e) {
-    if (e.target && e.target.closest && e.target.closest('.touch')) e.preventDefault();
-  });
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 })();
