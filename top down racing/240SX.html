@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>240SX — A Drift Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08080a;
+    --road: #0c0c0e;
+    --fg: #efe6d4;
+    --fg-dim: rgba(239, 230, 212, 0.55);
+    --fg-mute: rgba(239, 230, 212, 0.28);
+    --accent: #e6896b;
+    --accent-deep: #c25a3d;
+    --line: #a98a4a;
+    --rule: rgba(239, 230, 212, 0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    overflow: hidden;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    user-select: none;
+    -webkit-user-select: none;
+    overscroll-behavior: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas#world {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+
+  /* ---- overlay layer (HTML chrome) ---- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .serif { font-family: 'Instrument Serif', 'Cormorant Garamond', serif; font-weight: 400; }
+  .mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.08em; }
+
+  /* vignette + grain — sells the cinematic feel */
+  .vignette {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,0) 35%,
+      rgba(0,0,0,0.55) 100%);
+    mix-blend-mode: multiply;
+  }
+  .grain {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode: screen;
+  }
+
+  /* ---- intro splash ---- */
+  .splash {
+    position: absolute; inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(18px, 2.4vh, 36px);
+    background: radial-gradient(ellipse at center, rgba(8,8,10,0.55) 0%, rgba(8,8,10,0.95) 70%);
+    transition: opacity 0.9s ease, transform 0.9s ease;
+    z-index: 20;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .splash.gone {
+    opacity: 0;
+    transform: scale(1.03);
+    pointer-events: none;
+  }
+  .splash .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+  }
+  .splash .wordmark {
+    font-style: italic;
+    font-size: clamp(96px, 18vw, 240px);
+    line-height: 0.86;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    text-shadow: 0 0 80px rgba(230, 137, 107, 0.18);
+    display: flex;
+    align-items: baseline;
+    gap: 0.04em;
+  }
+  .splash .wordmark .accent {
+    color: var(--accent);
+    font-style: italic;
+  }
+  .splash .sub {
+    font-size: 12px;
+    letter-spacing: 0.5em;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .splash .sub .dot { width: 3px; height: 3px; background: var(--accent); border-radius: 50%; }
+  .splash .rule {
+    width: 80px; height: 1px; background: var(--rule);
+  }
+  .splash .controls {
+    margin-top: clamp(20px, 4vh, 56px);
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap: 32px 28px;
+    align-items: center;
+  }
+  .splash .controls .ctl {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .splash .controls .key {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--fg);
+    border: 1px solid var(--rule);
+    padding: 6px 10px;
+    min-width: 32px;
+    text-align: center;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.02);
+  }
+  .splash .controls .key.wide { min-width: 96px; }
+  .splash .controls .lbl {
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+  }
+  .splash .begin {
+    margin-top: clamp(14px, 2vh, 28px);
+    font-size: 11px;
+    letter-spacing: 0.5em;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    animation: pulse 2.2s ease-in-out infinite;
+  }
+  .splash .begin::before, .splash .begin::after {
+    content: ''; width: 32px; height: 1px; background: var(--fg-mute);
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+
+  /* ---- in-game chrome ---- */
+  .chrome {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.9s ease 0.3s;
+  }
+  .chrome.live { opacity: 1; }
+
+  .corner { position: absolute; }
+  .tl { top: clamp(20px, 3vh, 36px); left: clamp(22px, 3vw, 44px); }
+  .tr { top: clamp(20px, 3vh, 36px); right: clamp(22px, 3vw, 44px); text-align: right; }
+  .bl { bottom: clamp(20px, 3vh, 36px); left: clamp(22px, 3vw, 44px); }
+  .br { bottom: clamp(20px, 3vh, 36px); right: clamp(22px, 3vw, 44px); text-align: right; }
+
+  /* TL: wordmark */
+  .mark {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .mark .name {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .mark .name .accent { color: var(--accent); }
+  .mark .meta {
+    font-size: 9px;
+    letter-spacing: 0.32em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+  }
+
+  /* TR: speed */
+  .speed-stack {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 0;
+  }
+  .speed-stack .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 300;
+    font-size: clamp(64px, 9vw, 120px);
+    line-height: 0.88;
+    letter-spacing: -0.04em;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+  }
+  .speed-stack .num.hot {
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(230, 137, 107, 0.4);
+  }
+  .speed-stack .unit {
+    font-size: 10px;
+    letter-spacing: 0.5em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+    margin-top: 6px;
+    margin-right: 2px;
+  }
+
+  /* BL: controls hint */
+  .hint {
+    display: flex; flex-direction: column; gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+  }
+  .hint .row { display: flex; align-items: center; gap: 10px; }
+  .hint .k {
+    border: 1px solid var(--rule);
+    padding: 3px 6px;
+    color: var(--fg-dim);
+    min-width: 22px;
+    text-align: center;
+    border-radius: 2px;
+    font-size: 9px;
+  }
+  .hint .k.wide { min-width: 70px; }
+
+  /* BR: telemetry */
+  .telemetry {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 14px;
+  }
+  .telemetry .block { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .telemetry .lbl {
+    font-size: 9px;
+    letter-spacing: 0.4em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+  }
+  .telemetry .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .telemetry .block.drift .val { color: var(--fg); transition: color 0.15s ease; }
+  .telemetry .block.drift.on .val { color: var(--accent); }
+  .telemetry .block.score .val { font-size: 36px; font-weight: 300; letter-spacing: -0.04em; }
+  .telemetry .combo {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    margin-top: -4px;
+  }
+  .telemetry .combo.on { opacity: 1; }
+
+  /* center caption — slow editorial flourish */
+  .caption {
+    position: absolute;
+    left: 50%;
+    top: clamp(20px, 4vh, 48px);
+    transform: translateX(-50%);
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 32px;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    text-shadow: 0 0 40px rgba(0,0,0,0.6);
+  }
+  .caption.show { opacity: 0.9; }
+
+  /* compass / heading indicator (subtle) */
+  .compass {
+    position: absolute;
+    left: 50%;
+    bottom: clamp(22px, 3vh, 38px);
+    transform: translateX(-50%);
+    width: 220px;
+    height: 1px;
+    background: var(--rule);
+  }
+  .compass .tick {
+    position: absolute;
+    top: -3px;
+    width: 1px;
+    height: 7px;
+    background: var(--accent);
+    transition: left 0.05s linear;
+  }
+  .compass .lbl {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    letter-spacing: 0.4em;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* mobile touch zones — invisible, just for input */
+  .touch {
+    position: absolute;
+    pointer-events: auto;
+    z-index: 5;
+    opacity: 0;
+  }
+  @media (hover: none) and (pointer: coarse) {
+    .touch.left { left: 0; top: 0; width: 33%; height: 100%; }
+    .touch.right { right: 0; top: 0; width: 33%; height: 100%; }
+    .touch.throttle { left: 33%; right: 33%; bottom: 0; height: 35%; }
+    .touch.brake { left: 33%; right: 33%; top: 0; height: 35%; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="world"></canvas>
+
+  <!-- grain + vignette over the canvas -->
+  <div class="grain"></div>
+  <div class="vignette"></div>
+
+  <!-- in-game chrome -->
+  <div class="chrome" id="chrome">
+    <div class="corner tl">
+      <div class="mark">
+        <div class="name">240<span class="accent">SX</span></div>
+        <div class="meta" id="hud-circuit">Tochigi Circuit · 1.42 km · No. 01</div>
+      </div>
+    </div>
+
+    <div class="corner tr">
+      <div class="speed-stack">
+        <div class="num" id="hud-speed">000</div>
+        <div class="unit">MPH</div>
+      </div>
+    </div>
+
+    <div class="corner bl">
+      <div class="hint">
+        <div class="row"><span class="k wide">W / ↑</span><span>THROTTLE</span></div>
+        <div class="row"><span class="k">A</span><span class="k">D</span><span>STEER</span></div>
+        <div class="row"><span class="k wide">SPACE</span><span>HANDBRAKE</span></div>
+        <div class="row"><span class="k wide">R</span><span>RESET</span></div>
+      </div>
+    </div>
+
+    <div class="corner br">
+      <div class="telemetry">
+        <div class="block drift" id="hud-drift-block">
+          <div class="lbl">Drift Angle</div>
+          <div class="val"><span id="hud-angle">00</span>°</div>
+        </div>
+        <div class="block score">
+          <div class="lbl" id="hud-laplabel">Lap 1 · Time</div>
+          <div class="val" id="hud-laptime">0:00.00</div>
+          <div class="combo" id="hud-combo">×1.0</div>
+        </div>
+        <div class="block">
+          <div class="lbl">Best Lap</div>
+          <div class="val" id="hud-best">—:—</div>
+        </div>
+        <div class="block">
+          <div class="lbl">Last</div>
+          <div class="val" id="hud-last">—:—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- editorial center caption (e.g. "tochigi, 03:14") -->
+    <div class="caption" id="caption"></div>
+
+    <!-- compass / drift direction tick -->
+    <div class="compass">
+      <div class="tick" id="compass-tick" style="left: 50%;"></div>
+      <div class="lbl">Heading</div>
+    </div>
+  </div>
+
+  <!-- intro splash -->
+  <div class="splash" id="splash">
+    <div class="eyebrow">Nissan · 1989—1994 · Coupé</div>
+    <div class="wordmark">240<span class="accent">SX</span></div>
+    <div class="sub">
+      <span class="rule"></span>
+      <span>A Drift Study</span>
+      <span class="dot"></span>
+      <span>S13</span>
+      <span class="rule"></span>
+    </div>
+
+    <div class="controls">
+      <div class="ctl"><div class="key">W</div><div class="lbl">Throttle</div></div>
+      <div class="ctl"><div class="key">A · D</div><div class="lbl">Steer</div></div>
+      <div class="ctl"><div class="key wide">Space</div><div class="lbl">Handbrake</div></div>
+      <div class="ctl"><div class="key">R</div><div class="lbl">Reset</div></div>
+    </div>
+
+    <div class="begin">Press any key to begin</div>
+  </div>
+
+  <!-- mobile touch input zones (invisible) -->
+  <div class="touch left" id="touch-left"></div>
+  <div class="touch right" id="touch-right"></div>
+  <div class="touch throttle" id="touch-throttle"></div>
+  <div class="touch brake" id="touch-brake"></div>
+</div>
+
+<script src="drift.js"></script>
+</body>
+</html>
