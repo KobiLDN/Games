@@ -348,63 +348,86 @@
   window.addEventListener('keyup', function (e) { keys[e.code] = false; });
   splash.addEventListener('click', start);
 
-  // ─── virtual joystick (touch) ────────────────────────────────────────────
-  const touch = { left: false, right: false, throttle: false, brake: false };
-  const jstick = { active: false, id: null, startX: 0, startY: 0, currX: 0, currY: 0 };
-  let touchHandbrake = false;
-  const J_STEER_DEAD = 18;  // px horizontal dead zone
-  const J_BRAKE_DEAD = 28;  // px downward drag before braking kicks in
+  // ─── dual joystick (touch) ───────────────────────────────────────────────
+  // Left half  → lStick: vertical axis   = throttle (up) / brake (down)
+  // Right half → rStick: horizontal axis = steer left / right
+  // Top-center → drift button            = handbrake
+  // Orientation: swaps zones when device is rotated 180° (landscape-secondary)
+  const lStick   = { active: false, id: null, startX: 0, startY: 0, currX: 0, currY: 0 };
+  const rStick   = { active: false, id: null, startX: 0, startY: 0, currX: 0, currY: 0 };
+  const driftBtn = { active: false, id: null };
+  const tInput   = { throttle: 0, brake: 0, steer: 0, handbrake: false };
+  const J_DEAD = 12;
+  const J_FULL = 65;
 
-  function syncJoystick() {
-    if (!jstick.active) {
-      touch.left = touch.right = touch.throttle = touch.brake = false;
+  function isFlipped() {
+    if (screen.orientation) return screen.orientation.type === 'landscape-secondary';
+    return window.orientation === -90 || window.orientation === 180;
+  }
+
+  function syncSticks() {
+    if (lStick.active) {
+      const dy = lStick.currY - lStick.startY;
+      tInput.throttle = Math.min(1, Math.max(0, (-dy - J_DEAD) / (J_FULL - J_DEAD)));
+      tInput.brake    = Math.min(1, Math.max(0, ( dy - J_DEAD) / (J_FULL - J_DEAD)));
+    } else { tInput.throttle = tInput.brake = 0; }
+    if (rStick.active) {
+      const dx = rStick.currX - rStick.startX;
+      tInput.steer = Math.sign(dx) * Math.min(1, Math.max(0, (Math.abs(dx) - J_DEAD) / (J_FULL - J_DEAD)));
+    } else { tInput.steer = 0; }
+    tInput.handbrake = driftBtn.active;
+  }
+
+  function assignTouch(t) {
+    const cx = t.clientX, cy = t.clientY;
+    if (Math.hypot(cx - W / 2, cy - 64) < 44) {
+      if (!driftBtn.active) { driftBtn.active = true; driftBtn.id = t.identifier; }
       return;
     }
-    const dx = jstick.currX - jstick.startX;
-    const dy = jstick.currY - jstick.startY;
-    touch.left     = dx < -J_STEER_DEAD;
-    touch.right    = dx >  J_STEER_DEAD;
-    touch.brake    = dy >  J_BRAKE_DEAD;
-    touch.throttle = !touch.brake;
+    const leftZone = isFlipped() ? cx > W / 2 : cx < W / 2;
+    if (leftZone && !lStick.active) {
+      lStick.active = true; lStick.id = t.identifier;
+      lStick.startX = lStick.currX = cx; lStick.startY = lStick.currY = cy;
+    } else if (!leftZone && !rStick.active) {
+      rStick.active = true; rStick.id = t.identifier;
+      rStick.startX = rStick.currX = cx; rStick.startY = rStick.currY = cy;
+    }
   }
 
   canvas.addEventListener('touchstart', function (e) {
     e.preventDefault();
     if (!started) start();
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const t = e.changedTouches[i];
-      if (!jstick.active) {
-        jstick.active = true; jstick.id = t.identifier;
-        jstick.startX = jstick.currX = t.clientX;
-        jstick.startY = jstick.currY = t.clientY;
-      }
-    }
-    touchHandbrake = jstick.active && e.touches.length >= 2;
-    syncJoystick();
+    for (let i = 0; i < e.changedTouches.length; i++) assignTouch(e.changedTouches[i]);
+    syncSticks();
   }, { passive: false });
 
   canvas.addEventListener('touchmove', function (e) {
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
-      if (t.identifier === jstick.id) { jstick.currX = t.clientX; jstick.currY = t.clientY; }
+      if      (t.identifier === lStick.id) { lStick.currX = t.clientX; lStick.currY = t.clientY; }
+      else if (t.identifier === rStick.id) { rStick.currX = t.clientX; rStick.currY = t.clientY; }
     }
-    syncJoystick();
+    syncSticks();
   }, { passive: false });
 
   canvas.addEventListener('touchend', function (e) {
     e.preventDefault();
     for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === jstick.id) { jstick.active = false; jstick.id = null; }
+      const id = e.changedTouches[i].identifier;
+      if (id === lStick.id)   { lStick.active   = false; lStick.id   = null; }
+      if (id === rStick.id)   { rStick.active   = false; rStick.id   = null; }
+      if (id === driftBtn.id) { driftBtn.active = false; driftBtn.id = null; }
     }
-    touchHandbrake = jstick.active && e.touches.length >= 2;
-    syncJoystick();
+    syncSticks();
   }, { passive: false });
 
   canvas.addEventListener('touchcancel', function (e) {
     e.preventDefault();
-    jstick.active = false; jstick.id = null; touchHandbrake = false;
-    syncJoystick();
+    lStick.active = false; lStick.id = null;
+    rStick.active = false; rStick.id = null;
+    driftBtn.active = false; driftBtn.id = null;
+    syncSticks();
   }, { passive: false });
 
   // ─── helpers ─────────────────────────────────────────────────────────────
@@ -548,7 +571,7 @@
   })();
 
   // ─── car render ──────────────────────────────────────────────────────────
-  function drawCar(c) {
+  function drawCar(c, braking) {
     c.save();
     c.translate(car.x, car.y);
     c.rotate(car.heading);
@@ -623,7 +646,7 @@
     c.fillStyle = 'rgba(230, 80, 60, 0.85)';
     c.fillRect(-L / 2 + 0.6, -w / 2 + 2.5, 1.6, 3.0);
     c.fillRect(-L / 2 + 0.6,  w / 2 - 5.5, 1.6, 3.0);
-    if ((keys.ArrowDown || keys.KeyS || touch.brake)) {
+    if (braking) {
       c.fillStyle = 'rgba(255, 70, 50, 0.55)';
       c.beginPath();
       c.ellipse(-L / 2 - 4, 0, 14, w * 0.7, 0, 0, Math.PI * 2);
@@ -683,13 +706,12 @@
     last = now;
     if (dt > 0.05) dt = 0.05;
 
-    // input
-    const up    = keys.ArrowUp    || keys.KeyW || touch.throttle ? 1 : 0;
-    const down  = keys.ArrowDown  || keys.KeyS || touch.brake    ? 1 : 0;
-    const left  = keys.ArrowLeft  || keys.KeyA || touch.left     ? 1 : 0;
-    const right = keys.ArrowRight || keys.KeyD || touch.right    ? 1 : 0;
-    const handb = keys.Space || touchHandbrake ? 1 : 0;
-    const steerInput = right - left;
+    // input — keyboard binary merged with touch analog
+    const up         = Math.min(1, (keys.ArrowUp  || keys.KeyW ? 1 : 0) + tInput.throttle);
+    const down       = Math.min(1, (keys.ArrowDown || keys.KeyS ? 1 : 0) + tInput.brake);
+    const kbSteer    = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
+    const steerInput = Math.max(-1, Math.min(1, kbSteer + tInput.steer));
+    const handb      = keys.Space || tInput.handbrake ? 1 : 0;
 
     // velocity decomposition
     const fx = Math.cos(car.heading), fy = Math.sin(car.heading);
@@ -708,10 +730,10 @@
     const brake = 380;
     const topSpd = onTrack ? 440 : 200;
 
-    if (up) fSpeed += accel * dt;
-    if (down) {
-      if (fSpeed > 0) fSpeed = Math.max(0, fSpeed - brake * dt);
-      else fSpeed -= accel * 0.6 * dt;
+    if (up > 0) fSpeed += accel * up * dt;
+    if (down > 0) {
+      if (fSpeed > 0) fSpeed = Math.max(0, fSpeed - brake * down * dt);
+      else fSpeed -= accel * 0.6 * down * dt;
     }
     // engine drag + off-track drag
     const drag = onTrack ? 0.6 : 0.18;
@@ -880,32 +902,52 @@
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    drawCar(ctx);
+    drawCar(ctx, down > 0);
 
     ctx.restore();
 
-    // ── joystick visual (touch only)
-    if (jstick.active) {
-      const jx = jstick.startX, jy = jstick.startY;
-      const dx = jstick.currX - jx, dy = jstick.currY - jy;
-      const maxR = 52;
-      const clampR = Math.min(Math.hypot(dx, dy), maxR);
-      const ang = Math.atan2(dy, dx);
-      const kx = jx + Math.cos(ang) * clampR;
-      const ky = jy + Math.sin(ang) * clampR;
-      ctx.save();
-      ctx.strokeStyle = 'rgba(239,230,212,0.18)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(jx, jy, maxR, 0, Math.PI * 2); ctx.stroke();
-      ctx.strokeStyle = 'rgba(239,230,212,0.07)';
-      ctx.beginPath();
-      ctx.moveTo(jx - maxR, jy); ctx.lineTo(jx + maxR, jy);
-      ctx.moveTo(jx, jy - maxR); ctx.lineTo(jx, jy + maxR);
-      ctx.stroke();
-      ctx.fillStyle = touchHandbrake ? 'rgba(230,137,107,0.5)' : 'rgba(239,230,212,0.28)';
-      ctx.beginPath(); ctx.arc(kx, ky, 20, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
+    // ── dual joystick visuals
+    ctx.save();
+    ctx.lineWidth = 1;
+    if (lStick.active) {
+      const sx = lStick.startX, sy = lStick.startY;
+      const dy = lStick.currY - sy;
+      const ky = Math.max(sy - J_FULL, Math.min(sy + J_FULL, lStick.currY));
+      ctx.strokeStyle = 'rgba(239,230,212,0.14)';
+      ctx.beginPath(); ctx.arc(sx, sy, J_FULL, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(239,230,212,0.05)';
+      ctx.beginPath(); ctx.moveTo(sx, sy - J_FULL); ctx.lineTo(sx, sy + J_FULL); ctx.stroke();
+      const brakeDir = dy > J_DEAD;
+      const lit = Math.abs(dy) > J_DEAD;
+      ctx.fillStyle = brakeDir ? 'rgba(230,137,107,0.45)' : lit ? 'rgba(239,230,212,0.30)' : 'rgba(239,230,212,0.12)';
+      ctx.beginPath(); ctx.arc(sx, ky, 22, 0, Math.PI * 2); ctx.fill();
     }
+    if (rStick.active) {
+      const sx = rStick.startX, sy = rStick.startY;
+      const kx = Math.max(sx - J_FULL, Math.min(sx + J_FULL, rStick.currX));
+      ctx.strokeStyle = 'rgba(239,230,212,0.14)';
+      ctx.beginPath(); ctx.arc(sx, sy, J_FULL, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(239,230,212,0.05)';
+      ctx.beginPath(); ctx.moveTo(sx - J_FULL, sy); ctx.lineTo(sx + J_FULL, sy); ctx.stroke();
+      const lit = Math.abs(rStick.currX - sx) > J_DEAD;
+      ctx.fillStyle = lit ? 'rgba(239,230,212,0.30)' : 'rgba(239,230,212,0.12)';
+      ctx.beginPath(); ctx.arc(kx, sy, 22, 0, Math.PI * 2); ctx.fill();
+    }
+    if (lStick.active || rStick.active || driftBtn.active) {
+      const bx = W / 2, by = 64;
+      ctx.strokeStyle = driftBtn.active ? 'rgba(230,137,107,0.65)' : 'rgba(239,230,212,0.14)';
+      ctx.beginPath(); ctx.arc(bx, by, 38, 0, Math.PI * 2); ctx.stroke();
+      if (driftBtn.active) {
+        ctx.fillStyle = 'rgba(230,137,107,0.12)';
+        ctx.beginPath(); ctx.arc(bx, by, 38, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = driftBtn.active ? 'rgba(230,137,107,0.90)' : 'rgba(239,230,212,0.20)';
+      ctx.font = '500 9px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('DRIFT', bx, by);
+    }
+    ctx.restore();
 
     // ── minimap overlay (drawn in screen space)
     const mmX = W - miniBmp.width - 28;
